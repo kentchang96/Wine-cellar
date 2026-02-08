@@ -172,9 +172,11 @@
     .wine-image {
       width: 100%;
       height: 180px;
-      object-fit: cover;
+      object-fit: contain;
+      object-position: center;
       background: linear-gradient(135deg, var(--gray-light) 0%, #f0eee9 100%);
       position: relative;
+      padding: 8px;
     }
 
     .wine-info {
@@ -193,6 +195,14 @@
     .wine-meta {
       font-size: 0.75rem;
       color: var(--gray);
+      margin-bottom: 8px;
+    }
+
+    .wine-price {
+      display: inline-block;
+      font-size: 0.85rem;
+      color: var(--gold);
+      font-weight: 600;
       margin-bottom: 8px;
     }
 
@@ -472,6 +482,29 @@
       <button class="chip" data-filter="Rosé">Rosé</button>
       <button class="chip" data-filter="Sparkling">Sparkling</button>
     </div>
+    <div class="advanced-filters" id="advancedFilters" style="margin-top: 10px; display: none;">
+      <select id="filterType" style="width: 48%; margin-right: 4%; padding: 8px; border: 2px solid var(--gray-light); border-radius: 8px; font-size: 0.85rem;">
+        <option value="">All Types</option>
+      </select>
+      <select id="filterLocation" style="width: 48%; padding: 8px; border: 2px solid var(--gray-light); border-radius: 8px; font-size: 0.85rem;">
+        <option value="">All Locations</option>
+      </select>
+      <select id="filterPrice" style="width: 48%; margin-right: 4%; margin-top: 8px; padding: 8px; border: 2px solid var(--gray-light); border-radius: 8px; font-size: 0.85rem;">
+        <option value="">All Prices</option>
+        <option value="under20">$ (Under $20)</option>
+        <option value="20to35">$$ ($20-$35)</option>
+        <option value="35to50">$$$ ($35-$50)</option>
+        <option value="over50">$$$$ (Over $50)</option>
+      </select>
+      <select id="filterConsumed" style="width: 48%; margin-top: 8px; padding: 8px; border: 2px solid var(--gray-light); border-radius: 8px; font-size: 0.85rem;">
+        <option value="">All Status</option>
+        <option value="consumed">Consumed</option>
+        <option value="not-consumed">Not Consumed</option>
+      </select>
+    </div>
+    <button id="toggleFilters" style="width: 100%; margin-top: 8px; padding: 8px; background: white; border: 2px solid var(--wine-red); border-radius: 8px; color: var(--wine-red); font-size: 0.85rem; font-weight: 500; cursor: pointer;">
+      Show Advanced Filters
+    </button>
   </div>
 
   <div class="wines-grid" id="winesGrid"></div>
@@ -530,6 +563,21 @@
         </div>
 
         <div class="form-group">
+          <label>Location/Region</label>
+          <input type="text" id="location" placeholder="e.g., Napa Valley, Bordeaux, Austria">
+        </div>
+
+        <div class="form-group">
+          <label>Price</label>
+          <input type="number" id="price" min="0" step="0.01" placeholder="e.g., 45.00">
+        </div>
+
+        <div class="form-group">
+          <label>Date Consumed</label>
+          <input type="month" id="dateConsumed" placeholder="MM/YYYY">
+        </div>
+
+        <div class="form-group">
           <label>Notes</label>
           <textarea id="notes" placeholder="Tasting notes, occasion, food pairings..."></textarea>
         </div>
@@ -557,58 +605,103 @@
   </div>
 
   <script>
-    // Storage using window.storage for persistence
+    // Storage using localStorage
     let wines = [];
     let currentRating = 0;
     let currentPhoto = '';
     let editingId = null;
     let currentFilter = 'all';
 
+    // Helper function to get price symbol
+    function getPriceSymbol(price) {
+      if (!price || price === '') return '';
+      const p = parseFloat(price);
+      if (p < 20) return '$';
+      if (p < 35) return '$$';
+      if (p < 50) return '$$$';
+      return '$$$$';
+    }
+
     // Initialize app
-    async function init() {
-      await loadWines();
+    function init() {
+      // Test if localStorage is available
+      try {
+        localStorage.setItem('test', 'test');
+        localStorage.removeItem('test');
+        console.log('localStorage is available');
+      } catch (error) {
+        alert('Warning: Storage is disabled. This app requires browser storage to be enabled. Please check your privacy settings or exit private/incognito mode.');
+        console.error('localStorage not available:', error);
+      }
+      
+      loadWines();
+      populateFilterDropdowns();
       renderWines();
       setupEventListeners();
     }
 
-    // Load wines from storage
-    async function loadWines() {
+    // Populate filter dropdowns based on existing wines
+    function populateFilterDropdowns() {
+      // Get unique types
+      const types = [...new Set(wines.map(w => w.type).filter(t => t))].sort();
+      const typeSelect = document.getElementById('filterType');
+      typeSelect.innerHTML = '<option value="">All Types</option>' + 
+        types.map(t => `<option value="${t}">${t}</option>`).join('');
+      
+      // Get unique locations
+      const locations = [...new Set(wines.map(w => w.location).filter(l => l))].sort();
+      const locationSelect = document.getElementById('filterLocation');
+      locationSelect.innerHTML = '<option value="">All Locations</option>' + 
+        locations.map(l => `<option value="${l}">${l}</option>`).join('');
+    }
+
+    // Load wines from localStorage
+    function loadWines() {
       try {
-        const keys = await window.storage.list('wine:');
-        if (keys && keys.keys) {
-          wines = [];
-          for (const key of keys.keys) {
-            const result = await window.storage.get(key);
-            if (result && result.value) {
-              wines.push(JSON.parse(result.value));
-            }
-          }
-        }
+        const storedWines = localStorage.getItem('wineCollection');
+        wines = storedWines ? JSON.parse(storedWines) : [];
+        console.log('Loaded wines:', wines.length);
       } catch (error) {
-        console.log('Starting with empty collection');
+        console.error('Error loading wines:', error);
         wines = [];
       }
     }
 
-    // Save wine to storage
-    async function saveWine(wine) {
+    // Save all wines to localStorage
+    function saveAllWines() {
       try {
-        await window.storage.set(`wine:${wine.id}`, JSON.stringify(wine));
+        const dataToSave = JSON.stringify(wines);
+        const sizeInKB = Math.round(dataToSave.length / 1024);
+        const sizeInMB = (sizeInKB / 1024).toFixed(2);
+        console.log('Attempting to save data, size:', sizeInKB, 'KB (', sizeInMB, 'MB)');
+        
+        // Try to estimate storage quota
+        if (navigator.storage && navigator.storage.estimate) {
+          navigator.storage.estimate().then(estimate => {
+            const usageInMB = (estimate.usage / 1024 / 1024).toFixed(2);
+            const quotaInMB = (estimate.quota / 1024 / 1024).toFixed(2);
+            console.log('Storage usage:', usageInMB, 'MB of', quotaInMB, 'MB');
+          });
+        }
+        
+        localStorage.setItem('wineCollection', dataToSave);
+        console.log('Successfully saved wines:', wines.length);
         return true;
       } catch (error) {
-        console.error('Error saving wine:', error);
-        alert('Failed to save wine. Please try again.');
-        return false;
-      }
-    }
-
-    // Delete wine from storage
-    async function deleteWine(id) {
-      try {
-        await window.storage.delete(`wine:${id}`);
-        return true;
-      } catch (error) {
-        console.error('Error deleting wine:', error);
+        console.error('Error saving wines:', error);
+        console.error('Error name:', error.name);
+        
+        if (error.name === 'QuotaExceededError') {
+          const currentSize = wines.reduce((total, wine) => {
+            return total + JSON.stringify(wine).length;
+          }, 0);
+          const sizeInKB = Math.round(currentSize / 1024);
+          const sizeInMB = (sizeInKB / 1024).toFixed(2);
+          
+          alert(`Storage quota exceeded!\n\nYou're trying to save ${sizeInMB}MB of data.\n\nThis usually means:\n• Edge has storage restrictions for this site\n• Try accessing from your GitHub Pages URL\n• Or don't upload photos - use "Import from URL" instead`);
+        } else {
+          alert('Failed to save: ' + error.message + '\n\nError type: ' + error.name + '\n\nTry:\n• Check Edge settings > Cookies and site permissions\n• Access via your GitHub Pages URL\n• Make sure site data is allowed');
+        }
         return false;
       }
     }
@@ -617,13 +710,72 @@
     function renderWines() {
       const grid = document.getElementById('winesGrid');
       const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+      const filterType = document.getElementById('filterType').value.toLowerCase();
+      const filterLocation = document.getElementById('filterLocation').value.toLowerCase();
+      const filterPrice = document.getElementById('filterPrice').value;
+      const filterConsumed = document.getElementById('filterConsumed').value;
+      
+      // Define color order for sorting
+      const colorOrder = {
+        'Red': 1,
+        'White': 2,
+        'Rosé': 3,
+        'Sparkling': 4,
+        'Dessert': 5,
+        'Fortified': 6
+      };
       
       let filteredWines = wines.filter(wine => {
-        const matchesFilter = currentFilter === 'all' || wine.color === currentFilter;
+        // Color filter
+        const matchesColorFilter = currentFilter === 'all' || wine.color === currentFilter;
+        
+        // Search filter
         const matchesSearch = wine.name.toLowerCase().includes(searchTerm) ||
                             (wine.type && wine.type.toLowerCase().includes(searchTerm)) ||
-                            (wine.notes && wine.notes.toLowerCase().includes(searchTerm));
-        return matchesFilter && matchesSearch;
+                            (wine.location && wine.location.toLowerCase().includes(searchTerm)) ||
+                            (wine.notes && wine.notes.toLowerCase().includes(searchTerm)) ||
+                            (wine.vintage && wine.vintage.toString().includes(searchTerm));
+        
+        // Type filter
+        const matchesType = !filterType || (wine.type && wine.type.toLowerCase().includes(filterType));
+        
+        // Location filter
+        const matchesLocation = !filterLocation || (wine.location && wine.location.toLowerCase().includes(filterLocation));
+        
+        // Price filter
+        let matchesPrice = true;
+        if (filterPrice) {
+          const price = parseFloat(wine.price);
+          if (filterPrice === 'under20') matchesPrice = price < 20;
+          else if (filterPrice === '20to35') matchesPrice = price >= 20 && price < 35;
+          else if (filterPrice === '35to50') matchesPrice = price >= 35 && price < 50;
+          else if (filterPrice === 'over50') matchesPrice = price >= 50;
+        }
+        
+        // Consumed filter
+        let matchesConsumed = true;
+        if (filterConsumed === 'consumed') matchesConsumed = !!wine.dateConsumed;
+        else if (filterConsumed === 'not-consumed') matchesConsumed = !wine.dateConsumed;
+        
+        return matchesColorFilter && matchesSearch && matchesType && matchesLocation && matchesPrice && matchesConsumed;
+      });
+
+      // Sort by color (using defined order), then by rating (high to low), then by name
+      filteredWines.sort((a, b) => {
+        const colorA = colorOrder[a.color] || 999;
+        const colorB = colorOrder[b.color] || 999;
+        
+        if (colorA !== colorB) {
+          return colorA - colorB;
+        }
+        
+        // Within same color, sort by rating (highest first)
+        if (b.rating !== a.rating) {
+          return b.rating - a.rating;
+        }
+        
+        // If same rating, sort alphabetically
+        return a.name.localeCompare(b.name);
       });
 
       if (filteredWines.length === 0) {
@@ -649,13 +801,16 @@
           }
         }
         
+        const priceSymbol = getPriceSymbol(wine.price);
+        
         return `
           <div class="wine-card" data-id="${wine.id}">
             <img src="${wine.photo || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 200 200\'%3E%3Crect fill=\'%23f0eee9\' width=\'200\' height=\'200\'/%3E%3Cpath fill=\'%23d4af37\' opacity=\'0.2\' d=\'M100 40 L110 100 L100 160 L90 100 Z\'/%3E%3C/svg%3E'}" 
                  class="wine-image" alt="${wine.name}">
             <div class="wine-info">
               <div class="wine-name">${wine.name}</div>
-              <div class="wine-meta">${wine.vintage ? wine.vintage + ' • ' : ''}${wine.color}${wine.type ? ' • ' + wine.type : ''}</div>
+              <div class="wine-meta">${wine.vintage ? wine.vintage : ''}${wine.vintage && wine.type ? ' • ' : ''}${wine.type || ''}</div>
+              ${priceSymbol ? `<div class="wine-price">${priceSymbol}</div>` : ''}
               <div class="wine-rating">
                 ${ratingHtml}
               </div>
@@ -722,6 +877,25 @@
         });
       });
 
+      // Advanced filter dropdowns
+      document.getElementById('filterType').addEventListener('change', renderWines);
+      document.getElementById('filterLocation').addEventListener('change', renderWines);
+      document.getElementById('filterPrice').addEventListener('change', renderWines);
+      document.getElementById('filterConsumed').addEventListener('change', renderWines);
+
+      // Toggle advanced filters
+      document.getElementById('toggleFilters').addEventListener('click', () => {
+        const filtersDiv = document.getElementById('advancedFilters');
+        const toggleBtn = document.getElementById('toggleFilters');
+        if (filtersDiv.style.display === 'none') {
+          filtersDiv.style.display = 'block';
+          toggleBtn.textContent = 'Hide Advanced Filters';
+        } else {
+          filtersDiv.style.display = 'none';
+          toggleBtn.textContent = 'Show Advanced Filters';
+        }
+      });
+
       // Close modal on background click
       document.getElementById('wineModal').addEventListener('click', (e) => {
         if (e.target.id === 'wineModal') closeModal();
@@ -731,12 +905,47 @@
     function handleFileUpload(e) {
       const file = e.target.files[0];
       if (file) {
+        console.log('Original file size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+        
         const reader = new FileReader();
         reader.onload = (e) => {
-          currentPhoto = e.target.result;
-          const preview = document.getElementById('photoPreview');
-          preview.src = currentPhoto;
-          preview.classList.add('visible');
+          const img = new Image();
+          img.onload = () => {
+            // Create canvas for compression
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Resize to max 600x600 (good quality for phone screens, much smaller files)
+            const maxSize = 600;
+            let width = img.width;
+            let height = img.height;
+            
+            if (width > height) {
+              if (width > maxSize) {
+                height = height * (maxSize / width);
+                width = maxSize;
+              }
+            } else {
+              if (height > maxSize) {
+                width = width * (maxSize / height);
+                height = maxSize;
+              }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Compress to 60% quality JPEG
+            currentPhoto = canvas.toDataURL('image/jpeg', 0.6);
+            const compressedSizeKB = Math.round(currentPhoto.length / 1024);
+            console.log('Compressed photo size:', compressedSizeKB, 'KB');
+            
+            const preview = document.getElementById('photoPreview');
+            preview.src = currentPhoto;
+            preview.classList.add('visible');
+          };
+          img.src = e.target.result;
         };
         reader.readAsDataURL(file);
       }
@@ -789,6 +998,9 @@
       document.getElementById('vintage').value = wine.vintage || '';
       document.getElementById('color').value = wine.color;
       document.getElementById('type').value = wine.type || '';
+      document.getElementById('location').value = wine.location || '';
+      document.getElementById('price').value = wine.price || '';
+      document.getElementById('dateConsumed').value = wine.dateConsumed || '';
       document.getElementById('notes').value = wine.notes || '';
       
       currentRating = wine.rating;
@@ -808,41 +1020,65 @@
       document.getElementById('urlInputGroup').classList.remove('active');
     }
 
-    async function handleSubmit(e) {
+    function handleSubmit(e) {
       e.preventDefault();
+
+      console.log('Submitting wine...');
+      console.log('Current rating:', currentRating);
 
       const wine = {
         id: editingId || Date.now(),
-        name: document.getElementById('wineName').value,
+        name: document.getElementById('wineName').value.trim(),
         vintage: document.getElementById('vintage').value,
         color: document.getElementById('color').value,
-        type: document.getElementById('type').value,
-        notes: document.getElementById('notes').value,
-        rating: currentRating,
-        photo: currentPhoto,
-        dateAdded: editingId ? wines.find(w => w.id === editingId).dateAdded : new Date().toISOString()
+        type: document.getElementById('type').value.trim(),
+        location: document.getElementById('location').value.trim(),
+        price: document.getElementById('price').value,
+        dateConsumed: document.getElementById('dateConsumed').value,
+        notes: document.getElementById('notes').value.trim(),
+        rating: currentRating || 0,
+        photo: currentPhoto || '',
+        dateAdded: editingId ? wines.find(w => w.id === editingId)?.dateAdded || new Date().toISOString() : new Date().toISOString()
       };
 
-      const saved = await saveWine(wine);
-      if (saved) {
+      console.log('Wine data:', wine);
+
+      try {
+        // Update wines array
         if (editingId) {
           const index = wines.findIndex(w => w.id === editingId);
-          wines[index] = wine;
+          if (index !== -1) {
+            wines[index] = wine;
+            console.log('Updated existing wine at index:', index);
+          }
         } else {
           wines.push(wine);
+          console.log('Added new wine, total wines:', wines.length);
         }
-        renderWines();
-        closeModal();
+
+        // Save to storage
+        const saved = saveAllWines();
+        if (saved) {
+          console.log('Wine saved successfully');
+          populateFilterDropdowns();
+          renderWines();
+          closeModal();
+        } else {
+          console.error('saveAllWines returned false');
+        }
+      } catch (error) {
+        console.error('Error in handleSubmit:', error);
+        alert('Error saving wine: ' + error.message);
       }
     }
 
-    async function handleDelete() {
+    function handleDelete() {
       if (!editingId) return;
       
       if (confirm('Are you sure you want to delete this wine?')) {
-        const deleted = await deleteWine(`wine:${editingId}`);
-        if (deleted) {
-          wines = wines.filter(w => w.id !== editingId);
+        wines = wines.filter(w => w.id !== editingId);
+        const saved = saveAllWines();
+        if (saved) {
           renderWines();
           closeModal();
         }
